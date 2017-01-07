@@ -13,6 +13,7 @@
   - Robert ter Vehn / <first name>.<last name>(at)gmail(dot)com
   - Johann Richard / <first name>.<last name>(at)gmail(dot)com
   - Vlad Gheorghe / <first name>.<last name>(at)gmail(dot)com https://github.com/vgheo
+  - Martin Laclaustra / <first name>.<last name>(at)gmail(dot)com
   
   Project home: https://github.com/sui77/rc-switch/
 
@@ -91,10 +92,13 @@ unsigned int RCSwitch::nReceivedBitlength = 0;
 unsigned int RCSwitch::nReceivedDelay = 0;
 unsigned int RCSwitch::nReceivedProtocol = 0;
 int RCSwitch::nReceiveTolerance = 60;
-const unsigned int RCSwitch::nSeparationLimit = 4300;
-// separationLimit: minimum microseconds between received codes, closer codes are ignored.
-// according to discussion on issue #14 it might be more suitable to set the separation
-// limit to the same time as the 'low' part of the sync signal for the current protocol.
+const unsigned int RCSwitch::nSeparationLimit = 2200;
+// separationLimit: minimum microseconds the first long part of the sync bit lasts.
+// set to 110% the longest bit duration known so far.
+// protocol 2: (650 * (1 + 2))=1950 ... x 110% ... ~ 2200
+// with this limit, in protocols 5 and 6, the high part of the sync bit will be recognized
+// as timing 0 which causes problems in timing 1 and in decoding interpretation
+
 unsigned int RCSwitch::timings[RCSWITCH_MAX_CHANGES];
 #endif
 
@@ -595,18 +599,105 @@ static inline unsigned int diff(int A, int B) {
  *
  */
 bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCount) {
-#ifdef ESP8266
-    const Protocol &pro = proto[p-1];
-#else
-    Protocol pro;
-    memcpy_P(&pro, &proto[p-1], sizeof(Protocol));
-#endif
+
+    int finalp = 0; // no protocol recognized
+
+    // ignore very short transmissions: no device sends them, so this must be noise
+    if (changeCount < 8) return false; // also ensure avoiding 0 division later
+
+    // changeCount is the number of stored durations
+    // timings positions span from 0 ... (changeCount - 1)
+    // signals starting low data bits timings from positions 1 ... (changeCount - 2)
+    //                      sync bit timings[changeCount - 1], timings[0]
+    // signals starting high data bits timings from positions 2 ... (changeCount - 1)
+    //                       sync bit timings[0], timings[1]
+    // The later will not work with this version
+
+    unsigned int numberofdatabits = (changeCount - 2) / 2;
+
+    unsigned int dataduration = 0;
+    unsigned long squareddataduration = 0; // preparation for variance calculation
 
     unsigned long code = 0;
-    //Assuming the longer pulse length is the pulse captured in timings[0]
-    const unsigned int syncLengthInPulses =  ((pro.syncFactor.low) > (pro.syncFactor.high)) ? (pro.syncFactor.low) : (pro.syncFactor.high);
-    const unsigned int delay = RCSwitch::timings[0] / syncLengthInPulses;
+    unsigned int delay = 0; // all appearances of delay can be removed if, in future versions, it is decided to drop backwards compatibility
+
+    // calculate average of data bits duration
+    // calculate variance of data bits duration
+    // decode bit sequence,
+    // get delay as average of the shorter level timings (for backwards compatibility)
+
+    for (unsigned int i = 1; i < changeCount - 2; i += 2) {
+		
+        unsigned int thisbitDuration = RCSwitch::timings[i]+RCSwitch::timings[i + 1];
+        dataduration += thisbitDuration;
+        squareddataduration += thisbitDuration*thisbitDuration;
+		
+        code <<= 1;
+        if (RCSwitch::timings[i] < RCSwitch::timings[i + 1]) {
+            // zero
+            // sum accumulated duration of shorter level timings
+            delay += RCSwitch::timings[i];
+            // all appearances of delay can be removed if dropping backwards compatibility
+        } else {
+            // one
+            code |= 1;
+            // sum accumulated duration of shorter level timings
+            delay += RCSwitch::timings[i + 1];
+            // all appearances of delay can be removed if dropping backwards compatibility
+        }
+    }
+
+    unsigned long variancebitduration = (squareddataduration - dataduration*dataduration/numberofdatabits)/(numberofdatabits-1);
+
+    // check whether all bits durations are similar, discard otherwise
+    // a coefficient of variation (standard deviation/average) threshold of 5% should be adequate
+    // that means rejecting if standard deviation > average * 5 / 100
+    // in the squared scale is variance > squared average * 25 / 10000
+
+    unsigned int averagebitduration = (int)(0.5 + ((double)dataduration)/numberofdatabits);
+    unsigned long squaredaveragebitduration = averagebitduration * averagebitduration;
+
+    if (variancebitduration * 10000 > squaredaveragebitduration * 25 ) { return false; }
+
+    // get delay as average of the shorter level timings
+    delay = (int)(0.5 + ((double)delay)/numberofdatabits);
+
+    // ratio between long and short timing
+    unsigned int protocolratio = (unsigned int)(0.5 + ((double)(averagebitduration - delay)) / delay);
+
+
+    // store results
+
+    RCSwitch::nReceivedValue = code;
+    RCSwitch::nReceivedBitlength = numberofdatabits;
+    RCSwitch::nReceivedDelay = delay;
+
+
+    // for compatibility: check which protocol fits the data
+
+    // this can be completely removed from the receiver part of the library
+    // and let the programer check if the received code is from the protocol
+    // that was expected
     const unsigned int delayTolerance = delay * RCSwitch::nReceiveTolerance / 100;
+
+    for(unsigned int i = 1; i <= numProto; i++) {
+
+#ifdef ESP8266
+        Protocol &pro = proto[p-1];
+#else
+        Protocol pro;
+        memcpy_P(&pro, &proto[p-1], sizeof(Protocol));
+#endif
+
+        if (diff(delay, pro.pulseLength) < delayTolerance && // pulse length is correct AND
+            protocolratio == (int)(0.5 + (double)pro.one.high/(double)pro.one.low) && // long vs short ratio is correct AND
+            diff(RCSwitch::timings[0], pro.syncFactor.low * delay) < delayTolerance) { // the sync timing is correct
+                finalp = i;
+		break;
+	}
+    }
+    //Assuming the longer pulse length is the pulse captured in timings[0]
+    // Inverted protocols will not work with this version
     
     /* For protocols that start low, the sync period looks like
      *               _________
@@ -625,36 +716,14 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
      *
      * The 2nd saved duration starts the data
      */
-    const unsigned int firstDataTiming = (pro.invertedSignal) ? (2) : (1);
 
-    for (unsigned int i = firstDataTiming; i < changeCount - 1; i += 2) {
-        code <<= 1;
-        if (diff(RCSwitch::timings[i], delay * pro.zero.high) < delayTolerance &&
-            diff(RCSwitch::timings[i + 1], delay * pro.zero.low) < delayTolerance) {
-            // zero
-        } else if (diff(RCSwitch::timings[i], delay * pro.one.high) < delayTolerance &&
-                   diff(RCSwitch::timings[i + 1], delay * pro.one.low) < delayTolerance) {
-            // one
-            code |= 1;
-        } else {
-            // Failed
-            return false;
-        }
-    }
+    RCSwitch::nReceivedProtocol = finalp; // will be 0 if the code is recognize but it is of an unknown protocol
+    return true;
 
-    if (changeCount > 7) {    // ignore very short transmissions: no device sends them, so this must be noise
-        RCSwitch::nReceivedValue = code;
-        RCSwitch::nReceivedBitlength = (changeCount - 1) / 2;
-        RCSwitch::nReceivedDelay = delay;
-        RCSwitch::nReceivedProtocol = p;
-        return true;
-    }
-
-    return false;
 }
 
 void RECEIVE_ATTR RCSwitch::handleInterrupt() {
-
+	
   static unsigned int changeCount = 0;
   static unsigned long lastTime = 0;
   static unsigned int repeatCount = 0;
@@ -673,12 +742,7 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
       // with roughly the same gap between them).
       repeatCount++;
       if (repeatCount == 2) {
-        for(unsigned int i = 1; i <= numProto; i++) {
-          if (receiveProtocol(i, changeCount)) {
-            // receive succeeded for protocol i
-            break;
-          }
-        }
+        receiveProtocol(1,changeCount);
         repeatCount = 0;
       }
     }
