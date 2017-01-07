@@ -99,7 +99,10 @@ const unsigned int RCSwitch::nSeparationLimit = 2200;
 // with this limit, in protocols 5 and 6, the high part of the sync bit will be recognized
 // as timing 0 which causes problems in timing 1 and in decoding interpretation
 
+unsigned int RCSwitch::firstperiodlevel;
 unsigned int RCSwitch::timings[RCSWITCH_MAX_CHANGES];
+
+int RCSwitch::nStaticReceiverInterrupt; // needed because nReceiverInterrupt (receiver pin) can not be read from handleInterrupt because it is static
 #endif
 
 RCSwitch::RCSwitch() {
@@ -537,6 +540,7 @@ void RCSwitch::transmit(HighLow pulses) {
  */
 void RCSwitch::enableReceive(int interrupt) {
   this->nReceiverInterrupt = interrupt;
+  RCSwitch::nStaticReceiverInterrupt = interrupt;
   this->enableReceive();
 }
 
@@ -611,7 +615,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     //                      sync bit timings[changeCount - 1], timings[0]
     // signals starting high data bits timings from positions 2 ... (changeCount - 1)
     //                       sync bit timings[0], timings[1]
-    // The later will not work with this version
+    // This version takes into account both options by advancing 1 position for the later
 
     unsigned int numberofdatabits = (changeCount - 2) / 2;
 
@@ -628,21 +632,23 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
 
     for (unsigned int i = 1; i < changeCount - 2; i += 2) {
 		
-        unsigned int thisbitDuration = RCSwitch::timings[i]+RCSwitch::timings[i + 1];
+        // adds 1 to the positions if signal started high (meaning of " + RCSwitch::firstperiodlevel")
+
+        unsigned int thisbitDuration = RCSwitch::timings[i + RCSwitch::firstperiodlevel]+RCSwitch::timings[i + 1 + RCSwitch::firstperiodlevel];
         dataduration += thisbitDuration;
         squareddataduration += thisbitDuration*thisbitDuration;
 		
         code <<= 1;
-        if (RCSwitch::timings[i] < RCSwitch::timings[i + 1]) {
+        if (RCSwitch::timings[i + RCSwitch::firstperiodlevel] < RCSwitch::timings[i + 1 + RCSwitch::firstperiodlevel]) {
             // zero
             // sum accumulated duration of shorter level timings
-            delay += RCSwitch::timings[i];
+            delay += RCSwitch::timings[i + RCSwitch::firstperiodlevel];
             // all appearances of delay can be removed if dropping backwards compatibility
         } else {
             // one
             code |= 1;
             // sum accumulated duration of shorter level timings
-            delay += RCSwitch::timings[i + 1];
+            delay += RCSwitch::timings[i + 1 + RCSwitch::firstperiodlevel];
             // all appearances of delay can be removed if dropping backwards compatibility
         }
     }
@@ -665,6 +671,8 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     // ratio between long and short timing
     unsigned int protocolratio = (unsigned int)(0.5 + ((double)(averagebitduration - delay)) / delay);
 
+    // Inverted protocols will require negating the bits
+    // this still has not been implemented here
 
     // store results
 
@@ -731,9 +739,11 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
   const long time = micros();
   const unsigned int duration = time - lastTime;
 
-  if (duration > RCSwitch::nSeparationLimit) {
+  if (duration > RCSwitch::nSeparationLimit & changeCount != 1 ) {
     // A long stretch without signal level change occurred. This could
     // be the gap between two transmission.
+    // It allows a second long duration to be stored
+    // to accomodate for protocols with long high-level (first part) sync duration
     if (diff(duration, RCSwitch::timings[0]) < 200) {
       // This long signal is close in length to the long signal which
       // started the previously recorded timings; this suggests that
@@ -747,11 +757,15 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
       }
     }
     changeCount = 0;
+    // store the opposite level, because the time recorded is the one of the previous level
+    RCSwitch::firstperiodlevel = ! digitalRead(RCSwitch::nStaticReceiverInterrupt);
   }
  
   // detect overflow
   if (changeCount >= RCSWITCH_MAX_CHANGES) {
     changeCount = 0;
+    // store the opposite level, because the time recorded is the one of the previous level
+    RCSwitch::firstperiodlevel = ! digitalRead(RCSwitch::nStaticReceiverInterrupt);
     repeatCount = 0;
   }
 

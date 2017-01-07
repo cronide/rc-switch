@@ -131,6 +131,7 @@ class RCSwitch {
     static void handleInterrupt();
     static bool receiveProtocol(const int p, unsigned int changeCount);
     int nReceiverInterrupt;
+    static int nStaticReceiverInterrupt; // needed because nReceiverInterrupt (receiver pin) can not be read from handleInterrupt because it is static
     #endif
     int nTransmitterPin;
     int nRepeatTransmit;
@@ -147,6 +148,7 @@ class RCSwitch {
     /* 
      * timings[0] contains sync timing, followed by a number of bits
      */
+    static unsigned int firstperiodlevel;
     static unsigned int timings[RCSWITCH_MAX_CHANGES];
     #endif
 
