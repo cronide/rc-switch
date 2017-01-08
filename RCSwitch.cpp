@@ -691,21 +691,19 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     for(unsigned int i = 1; i <= numProto; i++) {
 
 #ifdef ESP8266
-        Protocol &pro = proto[p-1];
+        Protocol &pro = proto[i-1];
 #else
         Protocol pro;
-        memcpy_P(&pro, &proto[p-1], sizeof(Protocol));
+        memcpy_P(&pro, &proto[i-1], sizeof(Protocol));
 #endif
 
         if (diff(delay, pro.pulseLength) < delayTolerance && // pulse length is correct AND
             protocolratio == (int)(0.5 + (double)pro.one.high/(double)pro.one.low) && // long vs short ratio is correct AND
-            diff(RCSwitch::timings[0], pro.syncFactor.low * delay) < delayTolerance) { // the sync timing is correct
+            diff(RCSwitch::timings[0 + RCSwitch::firstperiodlevel], pro.syncFactor.low * delay) < pro.syncFactor.low * delayTolerance) { // the sync timing is correct
                 finalp = i;
 		break;
 	}
     }
-    //Assuming the longer pulse length is the pulse captured in timings[0]
-    // Inverted protocols will not work with this version
     
     /* For protocols that start low, the sync period looks like
      *               _________
