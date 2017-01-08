@@ -671,6 +671,16 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     // ratio between long and short timing
     unsigned int protocolratio = (unsigned int)(0.5 + ((double)(averagebitduration - delay)) / delay);
 
+    // INVERTED PROTOCOLS DECODING IS BROKEN
+    // A NEW LOGIC IS REQUIRED
+    // THE FOLLOWING CODE JUST DOES NOT WORK
+    // BECAUSE IN PROTOCOL 6 (INVERTED) FIRST SYNC IS LOW AND RECOGNIZED IN TIMINGS 0
+    // THAT WOULD REQUIRE RESYNCING ADDING 1 IN THE DECODING LOOP ABOVE
+    // BUT THERE IS NO UNIVOCAL WAY TO A PRIORY IDENTIFY THIS PROTOCOL
+    // IT CAN BE GUESSED BY COMPUTING AN ADDITIONAL VARIANCE FOR BITS
+    // CONSIDERED OUT OF PHASE AND DECIDE WHICH CONFIGURATION (PHASE OR OUT OF PHASE)
+    // MAKES MORE SENSE BECAUSE THE VARIANCE IS LESS AND BELOW THE THRESHOLD
+
     // Inverted protocols require negating the bits
 
     // recognize inverted protocol
