@@ -671,8 +671,24 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     // ratio between long and short timing
     unsigned int protocolratio = (unsigned int)(0.5 + ((double)(averagebitduration - delay)) / delay);
 
-    // Inverted protocols will require negating the bits
-    // this still has not been implemented here
+    // Inverted protocols require negating the bits
+
+    // recognize inverted protocol
+    // observe sync bit:
+    //         high duration < low duration : regular protocol
+    //         high duration > low duration : inverted protocol
+    // (this is an assumption looking at differences between protocol 6 and the rest in the table)
+
+    unsigned int syncfirstduration = (RCSwitch::firstperiodlevel == 1) ? (RCSwitch::timings[0]) : (RCSwitch::timings[2 * numberofdatabits + 1]);
+    unsigned int syncsecondduration = RCSwitch::timings[0 + RCSwitch::firstperiodlevel];
+    
+    // This is implemented here to provide full backwards compatibility
+    // but it should be decided whether it would be prefereable to provide
+    // data bits decoded naively and let the user perform negation at a higher level
+    // once the protocol of the received signal has been identified
+
+    // negate bits if inverted protocol
+    if (syncfirstduration > syncsecondduration) code = ( 0xffffffffUL >> ( 32 - numberofdatabits ) ) ^ code;
 
     // store results
 
