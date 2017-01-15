@@ -611,16 +611,30 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
 
     // changeCount is the number of stored durations
     // timings positions span from 0 ... (changeCount - 1)
+    //
+    // non-inverted protocols with recorded...
     // signals starting low data bits timings from positions 1 ... (changeCount - 2)
     //                      sync bit timings[changeCount - 1], timings[0]
+    // non-inverted protocols with recorded...
     // signals starting high data bits timings from positions 2 ... (changeCount - 1)
     //                       sync bit timings[0], timings[1]
     // This version takes into account both options by advancing 1 position for the later
+    //
+    // inverted protocols with recorded...
+    // signals starting low data bits timings from positions 2 ... (changeCount - 1)
+    //                      sync bit timings[changeCount - 1], timings[0]
+    // inverted protocols with recorded...
+    // signals starting high data bits timings from positions 1 ... (changeCount - 2)
+    //                       sync bit timings[0], timings[1]
+    // This version stores an alternate phase for decoding to cope with inverted protocols
 
     unsigned int numberofdatabits = (changeCount - 2) / 2;
 
     unsigned int dataduration = 0;
     unsigned long squareddataduration = 0; // preparation for variance calculation
+
+    unsigned int alternatedataduration = 0;
+    unsigned long alternatesquareddataduration = 0; // preparation for variance calculation
 
     unsigned long code = 0;
     unsigned int delay = 0; // all appearances of delay can be removed if, in future versions, it is decided to drop backwards compatibility
@@ -637,6 +651,12 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
         unsigned int thisbitDuration = RCSwitch::timings[i + RCSwitch::firstperiodlevel]+RCSwitch::timings[i + 1 + RCSwitch::firstperiodlevel];
         dataduration += thisbitDuration;
         squareddataduration += thisbitDuration*thisbitDuration;
+
+        // for inverted protocols - timings are shifted
+
+        unsigned int alternatebitDuration = RCSwitch::timings[i + 1 - RCSwitch::firstperiodlevel]+RCSwitch::timings[i + 2 - RCSwitch::firstperiodlevel];
+        alternatedataduration += alternatebitDuration;
+        alternatesquareddataduration += alternatebitDuration*alternatebitDuration;
 		
         code <<= 1;
         if (RCSwitch::timings[i + RCSwitch::firstperiodlevel] < RCSwitch::timings[i + 1 + RCSwitch::firstperiodlevel]) {
@@ -663,42 +683,37 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     unsigned int averagebitduration = (int)(0.5 + ((double)dataduration)/numberofdatabits);
     unsigned long squaredaveragebitduration = averagebitduration * averagebitduration;
 
-    if (variancebitduration * 10000 > squaredaveragebitduration * 25 ) { return false; }
+    if (variancebitduration * 10000 > squaredaveragebitduration * 25 ) {
+        // in case data was not properly decoded with a direct protocol, try an inverted protocol
+        variancebitduration = (alternatesquareddataduration - alternatedataduration*alternatedataduration/numberofdatabits)/(numberofdatabits-1);
+        averagebitduration = (int)(0.5 + ((double)alternatedataduration)/numberofdatabits);
+        squaredaveragebitduration = averagebitduration * averagebitduration;
+
+        if (variancebitduration * 10000 > squaredaveragebitduration * 25 ) {
+            return false;
+        } else {
+            // if data is compatible with inverted protocol, decode
+            code = 0;
+            delay = 0;
+            for (unsigned int i = 1; i < changeCount - 2; i += 2) {
+                code <<= 1;
+                if (RCSwitch::timings[i + 1 - RCSwitch::firstperiodlevel] < RCSwitch::timings[i + 2 - RCSwitch::firstperiodlevel]) {
+                    delay += RCSwitch::timings[i + 1 - RCSwitch::firstperiodlevel];
+                } else {
+                    code |= 1;
+                    delay += RCSwitch::timings[i + 2 - RCSwitch::firstperiodlevel];
+                }
+            }
+            // PENDING: set a flag to notify that the recognized protocol was inverted
+            // PITFALL: occasionally (depending on the combination of bits) an inverted signal could be identified as direct signal
+        }
+    }
 
     // get delay as average of the shorter level timings
     delay = (int)(0.5 + ((double)delay)/numberofdatabits);
 
     // ratio between long and short timing
     unsigned int protocolratio = (unsigned int)(0.5 + ((double)(averagebitduration - delay)) / delay);
-
-    // INVERTED PROTOCOLS DECODING IS BROKEN
-    // A NEW LOGIC IS REQUIRED
-    // THE FOLLOWING CODE JUST DOES NOT WORK
-    // BECAUSE IN PROTOCOL 6 (INVERTED) FIRST SYNC IS LOW AND RECOGNIZED IN TIMINGS 0
-    // THAT WOULD REQUIRE RESYNCING ADDING 1 IN THE DECODING LOOP ABOVE
-    // BUT THERE IS NO UNIVOCAL WAY TO A PRIORY IDENTIFY THIS PROTOCOL
-    // IT CAN BE GUESSED BY COMPUTING AN ADDITIONAL VARIANCE FOR BITS
-    // CONSIDERED OUT OF PHASE AND DECIDE WHICH CONFIGURATION (PHASE OR OUT OF PHASE)
-    // MAKES MORE SENSE BECAUSE THE VARIANCE IS LESS AND BELOW THE THRESHOLD
-
-    // Inverted protocols require negating the bits
-
-    // recognize inverted protocol
-    // observe sync bit:
-    //         high duration < low duration : regular protocol
-    //         high duration > low duration : inverted protocol
-    // (this is an assumption looking at differences between protocol 6 and the rest in the table)
-
-    unsigned int syncfirstduration = (RCSwitch::firstperiodlevel == 1) ? (RCSwitch::timings[0]) : (RCSwitch::timings[2 * numberofdatabits + 1]);
-    unsigned int syncsecondduration = RCSwitch::timings[0 + RCSwitch::firstperiodlevel];
-    
-    // This is implemented here to provide full backwards compatibility
-    // but it should be decided whether it would be prefereable to provide
-    // data bits decoded naively and let the user perform negation at a higher level
-    // once the protocol of the received signal has been identified
-
-    // negate bits if inverted protocol
-    if (syncfirstduration > syncsecondduration) code = ( 0xffffffffUL >> ( 32 - numberofdatabits ) ) ^ code;
 
     // store results
 
