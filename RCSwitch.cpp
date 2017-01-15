@@ -683,6 +683,8 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     unsigned int averagebitduration = (int)(0.5 + ((double)dataduration)/numberofdatabits);
     unsigned long squaredaveragebitduration = averagebitduration * averagebitduration;
 
+    bool invertedprotocoldecoded = false;
+
     if (variancebitduration * 10000 > squaredaveragebitduration * 25 ) {
         // in case data was not properly decoded with a direct protocol, try an inverted protocol
         variancebitduration = (alternatesquareddataduration - alternatedataduration*alternatedataduration/numberofdatabits)/(numberofdatabits-1);
@@ -704,7 +706,8 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
                     delay += RCSwitch::timings[i + 2 - RCSwitch::firstperiodlevel];
                 }
             }
-            // PENDING: set a flag to notify that the recognized protocol was inverted
+            // set a flag to notify that the recognized protocol was inverted
+            invertedprotocoldecoded = true;
             // PITFALL: occasionally (depending on the combination of bits) an inverted signal could be identified as direct signal
         }
     }
@@ -738,9 +741,10 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
         memcpy_P(&pro, &proto[i-1], sizeof(Protocol));
 #endif
 
-        if (diff(delay, pro.pulseLength) < delayTolerance && // pulse length is correct AND
+        if (invertedprotocoldecoded == pro.invertedSignal && // protocol inversion is correct AND
+            diff(delay, pro.pulseLength) < delayTolerance && // pulse length is correct AND
             protocolratio == (int)(0.5 + (double)pro.one.high/(double)pro.one.low) && // long vs short ratio is correct AND
-            diff(RCSwitch::timings[0 + RCSwitch::firstperiodlevel], pro.syncFactor.low * delay) < pro.syncFactor.low * delayTolerance) { // the sync timing is correct
+            diff(RCSwitch::timings[0 + RCSwitch::firstperiodlevel], ((invertedprotocoldecoded)?(pro.syncFactor.high):(pro.syncFactor.low)) * delay) < ((invertedprotocoldecoded)?(pro.syncFactor.high):(pro.syncFactor.low)) * delayTolerance) { // the sync timing is correct
                 finalp = i;
 		break;
 	}
