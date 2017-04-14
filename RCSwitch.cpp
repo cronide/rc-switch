@@ -735,7 +735,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     for(unsigned int i = 1; i <= numProto; i++) {
 
 #ifdef ESP8266
-        Protocol &pro = proto[i-1];
+        const Protocol &pro = proto[i-1];
 #else
         Protocol pro;
         memcpy_P(&pro, &proto[i-1], sizeof(Protocol));
