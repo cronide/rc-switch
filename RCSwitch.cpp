@@ -724,13 +724,16 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     delay = (int)(0.5 + ((double)delay)/numberofdatabits);
 
     // ratio between long and short timing
-    unsigned int protocolratio = (unsigned int)(0.5 + ((double)(averagebitduration - delay)) / delay);
+    unsigned int protocolratio = (unsigned int)(0.5 + ((double)(averagebitduration - delay)) / (double)delay);
+    
+    // improved pulselenght (delay) calculation
+    int normalizedpulselength = (int)(0.5 + (double)averagebitduration/(double)(protocolratio+1));
 
     // store results
 
     RCSwitch::nReceivedValue = code;
     RCSwitch::nReceivedBitlength = numberofdatabits;
-    RCSwitch::nReceivedDelay = delay;
+    RCSwitch::nReceivedDelay = normalizedpulselength;
 
 
     // for compatibility: check which protocol fits the data
