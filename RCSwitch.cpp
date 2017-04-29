@@ -650,7 +650,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
 
         unsigned int thisbitDuration = RCSwitch::timings[i + RCSwitch::firstperiodlevel]+RCSwitch::timings[i + 1 + RCSwitch::firstperiodlevel];
         dataduration += thisbitDuration;
-        squareddataduration += thisbitDuration*thisbitDuration;
+        squareddataduration += (unsigned long)thisbitDuration*(unsigned long)thisbitDuration;
 
         // for inverted protocols - timings are shifted
 
@@ -673,7 +673,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
         }
     }
 
-    unsigned long variancebitduration = (squareddataduration - dataduration*dataduration/numberofdatabits)/(numberofdatabits-1);
+    unsigned long variancebitduration = (squareddataduration - (unsigned long)dataduration*(unsigned long)dataduration/numberofdatabits)/(numberofdatabits-1);
 
     // check whether all bits durations are similar, discard otherwise
     // a coefficient of variation (standard deviation/average) threshold of 5% should be adequate
@@ -681,7 +681,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     // in the squared scale is variance > squared average * 25 / 10000
 
     unsigned int averagebitduration = (int)(0.5 + ((double)dataduration)/numberofdatabits);
-    unsigned long squaredaveragebitduration = averagebitduration * averagebitduration;
+    unsigned long squaredaveragebitduration = (unsigned long)averagebitduration * (unsigned long)averagebitduration;
 
     bool invertedprotocoldecoded = false;
 
