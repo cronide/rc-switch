@@ -687,9 +687,9 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
 
     if (variancebitduration * 10000 > squaredaveragebitduration * 25 ) {
         // in case data was not properly decoded with a direct protocol, try an inverted protocol
-        variancebitduration = (alternatesquareddataduration - alternatedataduration*alternatedataduration/numberofdatabits)/(numberofdatabits-1);
+        variancebitduration = (alternatesquareddataduration - (unsigned long)alternatedataduration*(unsigned long)alternatedataduration/numberofdatabits)/(numberofdatabits-1);
         averagebitduration = (int)(0.5 + ((double)alternatedataduration)/numberofdatabits);
-        squaredaveragebitduration = averagebitduration * averagebitduration;
+        squaredaveragebitduration = (unsigned long)averagebitduration * (unsigned long)averagebitduration;
 
         if (variancebitduration * 10000 > squaredaveragebitduration * 25 ) {
             return false;
