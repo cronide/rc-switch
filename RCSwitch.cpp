@@ -613,104 +613,112 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     // timings positions span from 0 ... (changeCount - 1)
     //
     // non-inverted protocols with recorded...
-    // signals starting low data bits timings from positions 1 ... (changeCount - 2)
-    //                      sync bit timings[changeCount - 1], timings[0]
+    // signals starting low: data bits timings from positions 1 ... (changeCount - 2)
+    //                       sync bit timings[changeCount - 1], timings[0]
     // non-inverted protocols with recorded...
-    // signals starting high data bits timings from positions 2 ... (changeCount - 1)
-    //                       sync bit timings[0], timings[1]
+    // signals starting high: data bits timings from positions 2 ... (changeCount - 1)
+    //                        sync bit timings[0], timings[1]
     // This version takes into account both options by advancing 1 position for the later
     //
     // inverted protocols with recorded...
-    // signals starting low data bits timings from positions 2 ... (changeCount - 1)
-    //                      sync bit timings[changeCount - 1], timings[0]
+    // signals starting low: data bits timings from positions 2 ... (changeCount - 1)
+    //                       sync bit timings[changeCount - 1], timings[0]
     // inverted protocols with recorded...
-    // signals starting high data bits timings from positions 1 ... (changeCount - 2)
-    //                       sync bit timings[0], timings[1]
+    // signals starting high: data bits timings from positions 1 ... (changeCount - 2)
+    //                        sync bit timings[0], timings[1]
     // This version stores an alternate phase for decoding to cope with inverted protocols
 
     unsigned int numberofdatabits = (changeCount - 2) / 2;
 
     unsigned int dataduration = 0;
     unsigned long squareddataduration = 0; // preparation for variance calculation
-
-    unsigned int alternatedataduration = 0;
-    unsigned long alternatesquareddataduration = 0; // preparation for variance calculation
-
     unsigned long code = 0;
     unsigned int delay = 0; // all appearances of delay can be removed if, in future versions, it is decided to drop backwards compatibility
 
+    unsigned int alternatedataduration = 0;
+    unsigned long alternatesquareddataduration = 0; // preparation for variance calculation
+    unsigned long alternatecode = 0;
+    unsigned int alternatedelay = 0; // all appearances of delay can be removed if, in future versions, it is decided to drop backwards compatibility
+    
     // calculate average of data bits duration
     // calculate variance of data bits duration
     // decode bit sequence,
     // get delay as average of the shorter level timings (for backwards compatibility)
+    
+    // calculate for alternate positions (shifted one timing) as well
 
     for (unsigned int i = 1; i < changeCount - 2; i += 2) {
 		
-        // adds 1 to the positions if signal started high (meaning of " + RCSwitch::firstperiodlevel")
-
-        unsigned int thisbitDuration = RCSwitch::timings[i + RCSwitch::firstperiodlevel]+RCSwitch::timings[i + 1 + RCSwitch::firstperiodlevel];
+        unsigned int thisbitDuration = RCSwitch::timings[i]+RCSwitch::timings[i + 1];
         dataduration += thisbitDuration;
         squareddataduration += (unsigned long)thisbitDuration*(unsigned long)thisbitDuration;
 
-        // for inverted protocols - timings are shifted
-
-        unsigned int alternatebitDuration = RCSwitch::timings[i + 1 - RCSwitch::firstperiodlevel]+RCSwitch::timings[i + 2 - RCSwitch::firstperiodlevel];
-        alternatedataduration += alternatebitDuration;
-        alternatesquareddataduration += alternatebitDuration*alternatebitDuration;
-		
         code <<= 1;
-        if (RCSwitch::timings[i + RCSwitch::firstperiodlevel] < RCSwitch::timings[i + 1 + RCSwitch::firstperiodlevel]) {
+        if (RCSwitch::timings[i] < RCSwitch::timings[i + 1]) {
             // zero
             // sum accumulated duration of shorter level timings
-            delay += RCSwitch::timings[i + RCSwitch::firstperiodlevel];
+            delay += RCSwitch::timings[i];
             // all appearances of delay can be removed if dropping backwards compatibility
         } else {
             // one
             code |= 1;
             // sum accumulated duration of shorter level timings
-            delay += RCSwitch::timings[i + 1 + RCSwitch::firstperiodlevel];
+            delay += RCSwitch::timings[i + 1];
+            // all appearances of delay can be removed if dropping backwards compatibility
+        }
+        
+        // for inverted protocols - timings are shifted
+
+        unsigned int alternatebitDuration = RCSwitch::timings[i + 1]+RCSwitch::timings[i + 2];
+        alternatedataduration += alternatebitDuration;
+        alternatesquareddataduration += (unsigned long)alternatebitDuration*(unsigned long)alternatebitDuration;
+		
+        alternatecode <<= 1;
+        if (RCSwitch::timings[i + 1] < RCSwitch::timings[i + 2]) {
+            // zero
+            // sum accumulated duration of shorter level timings
+            alternatedelay += RCSwitch::timings[i + 1];
+            // all appearances of delay can be removed if dropping backwards compatibility
+        } else {
+            // one
+            alternatecode |= 1;
+            // sum accumulated duration of shorter level timings
+            alternatedelay += RCSwitch::timings[i + 2];
             // all appearances of delay can be removed if dropping backwards compatibility
         }
     }
 
     unsigned long variancebitduration = (squareddataduration - (unsigned long)dataduration*(unsigned long)dataduration/numberofdatabits)/(numberofdatabits-1);
+    unsigned long alternatevariancebitduration = (alternatesquareddataduration - (unsigned long)alternatedataduration*(unsigned long)alternatedataduration/numberofdatabits)/(numberofdatabits-1);
+    
+    // decide whether databits are represented by timings 1+2 or 2+3
+    bool databitsstartinone = variancebitduration < alternatevariancebitduration;
+    // PITFALL: occasionally (depending on the combination of bits) an inverted signal could be identified as direct signal
+
+    unsigned int averagebitduration = 0;
+    unsigned long squaredaveragebitduration = 0;
+    
+    if(databitsstartinone) {
+        averagebitduration = (int)(0.5 + ((double)dataduration)/numberofdatabits);
+        squaredaveragebitduration = (unsigned long)averagebitduration * (unsigned long)averagebitduration;
+    } else {
+        averagebitduration = (int)(0.5 + ((double)alternatedataduration)/numberofdatabits);
+        squaredaveragebitduration = (unsigned long)averagebitduration * (unsigned long)averagebitduration;
+        variancebitduration = alternatevariancebitduration;
+        code = alternatecode;
+        delay = alternatedelay;
+    }
 
     // check whether all bits durations are similar, discard otherwise
     // a coefficient of variation (standard deviation/average) threshold of 5% should be adequate
     // that means rejecting if standard deviation > average * 5 / 100
     // in the squared scale is variance > squared average * 25 / 10000
 
-    unsigned int averagebitduration = (int)(0.5 + ((double)dataduration)/numberofdatabits);
-    unsigned long squaredaveragebitduration = (unsigned long)averagebitduration * (unsigned long)averagebitduration;
-
-    bool invertedprotocoldecoded = false;
-
     if (variancebitduration * 10000 > squaredaveragebitduration * 25 ) {
-        // in case data was not properly decoded with a direct protocol, try an inverted protocol
-        variancebitduration = (alternatesquareddataduration - (unsigned long)alternatedataduration*(unsigned long)alternatedataduration/numberofdatabits)/(numberofdatabits-1);
-        averagebitduration = (int)(0.5 + ((double)alternatedataduration)/numberofdatabits);
-        squaredaveragebitduration = (unsigned long)averagebitduration * (unsigned long)averagebitduration;
-
-        if (variancebitduration * 10000 > squaredaveragebitduration * 25 ) {
-            return false;
-        } else {
-            // if data is compatible with inverted protocol, decode
-            code = 0;
-            delay = 0;
-            for (unsigned int i = 1; i < changeCount - 2; i += 2) {
-                code <<= 1;
-                if (RCSwitch::timings[i + 1 - RCSwitch::firstperiodlevel] < RCSwitch::timings[i + 2 - RCSwitch::firstperiodlevel]) {
-                    delay += RCSwitch::timings[i + 1 - RCSwitch::firstperiodlevel];
-                } else {
-                    code |= 1;
-                    delay += RCSwitch::timings[i + 2 - RCSwitch::firstperiodlevel];
-                }
-            }
-            // set a flag to notify that the recognized protocol was inverted
-            invertedprotocoldecoded = true;
-            // PITFALL: occasionally (depending on the combination of bits) an inverted signal could be identified as direct signal
-        }
+        return false;
     }
+
+    bool invertedprotocoldecoded = databitsstartinone ^ (RCSwitch::firstperiodlevel == 0);
 
     // get delay as average of the shorter level timings
     delay = (int)(0.5 + ((double)delay)/numberofdatabits);
@@ -768,7 +776,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
      * The 2nd saved duration starts the data
      */
 
-    RCSwitch::nReceivedProtocol = finalp; // will be 0 if the code is recognize but it is of an unknown protocol
+    RCSwitch::nReceivedProtocol = finalp; // will be 0 if the code is recognized but it is of an unknown protocol
     return true;
 
 }
