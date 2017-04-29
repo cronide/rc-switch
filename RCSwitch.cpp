@@ -91,6 +91,8 @@ unsigned long RCSwitch::nReceivedValue = 0;
 unsigned int RCSwitch::nReceivedBitlength = 0;
 unsigned int RCSwitch::nReceivedDelay = 0;
 unsigned int RCSwitch::nReceivedProtocol = 0;
+bool RCSwitch::nReceivedInverted = false;
+unsigned int RCSwitch::nReceivedLevelInFirstTiming = 0;
 int RCSwitch::nReceiveTolerance = 60;
 const unsigned int RCSwitch::nSeparationLimit = 2200;
 // separationLimit: minimum microseconds the first long part of the sync bit lasts.
@@ -594,6 +596,14 @@ unsigned int* RCSwitch::getReceivedRawdata() {
   return RCSwitch::timings;
 }
 
+bool RCSwitch::getReceivedInverted() {
+  return RCSwitch::nReceivedInverted;
+}
+
+unsigned int RCSwitch::getReceivedLevelInFirstTiming() {
+  return RCSwitch::nReceivedLevelInFirstTiming;
+}
+
 /* helper function for the receiveProtocol method */
 static inline unsigned int diff(int A, int B) {
   return abs(A - B);
@@ -734,6 +744,9 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     RCSwitch::nReceivedValue = code;
     RCSwitch::nReceivedBitlength = numberofdatabits;
     RCSwitch::nReceivedDelay = normalizedpulselength;
+
+    RCSwitch::nReceivedInverted = invertedprotocoldecoded;
+    RCSwitch::nReceivedLevelInFirstTiming = RCSwitch::firstperiodlevel;
 
 
     // for compatibility: check which protocol fits the data

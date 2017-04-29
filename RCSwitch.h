@@ -92,6 +92,8 @@ class RCSwitch {
     unsigned int getReceivedDelay();
     unsigned int getReceivedProtocol();
     unsigned int* getReceivedRawdata();
+    bool getReceivedInverted();
+    unsigned int getReceivedLevelInFirstTiming();
     #endif
   
     void enableTransmit(int nTransmitterPin);
@@ -144,6 +146,8 @@ class RCSwitch {
     static unsigned int nReceivedBitlength;
     static unsigned int nReceivedDelay;
     static unsigned int nReceivedProtocol;
+    static bool nReceivedInverted;
+    static unsigned int nReceivedLevelInFirstTiming;
     const static unsigned int nSeparationLimit;
     /* 
      * timings[0] contains sync timing, followed by a number of bits
