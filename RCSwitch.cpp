@@ -104,7 +104,7 @@ const unsigned int RCSwitch::nSeparationLimit = 2200;
 unsigned int RCSwitch::firstperiodlevel;
 unsigned int RCSwitch::timings[RCSWITCH_MAX_CHANGES];
 
-int RCSwitch::nStaticReceiverInterrupt; // needed because nReceiverInterrupt (receiver pin) can not be read from handleInterrupt because it is static
+int RCSwitch::nStaticReceiverPin; // needed because nReceiverInterrupt (receiver pin) can not be read from handleInterrupt because it is static
 #endif
 
 RCSwitch::RCSwitch() {
@@ -541,8 +541,20 @@ void RCSwitch::transmit(HighLow pulses) {
  * Enable receiving data
  */
 void RCSwitch::enableReceive(int interrupt) {
+#ifdef RaspberryPi
+  int receiverpin = interrupt;
+#else
+  // learn which digital pin corresponds to that interrupt
+  int receiverpin = -1;
+  for(int i = 0; i < 40; i++) {
+    if (digitalPinToInterrupt(i) == interrupt) {
+      receiverpin = i;
+      break;
+    }
+  }
+#endif
   this->nReceiverInterrupt = interrupt;
-  RCSwitch::nStaticReceiverInterrupt = interrupt;
+  RCSwitch::nStaticReceiverPin = receiverpin;
   this->enableReceive();
 }
 
@@ -615,6 +627,7 @@ static inline unsigned int diff(int A, int B) {
 bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCount) {
 
     int finalp = 0; // no protocol recognized
+    unsigned int tmpfirstperiodlevel = RCSwitch::firstperiodlevel; // store it before it is overwritten
 
     // ignore very short transmissions: no device sends them, so this must be noise
     if (changeCount < 8) return false; // also ensure avoiding 0 division later
@@ -703,6 +716,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     
     // decide whether databits are represented by timings 1+2 or 2+3
     bool databitsstartinone = variancebitduration < alternatevariancebitduration;
+    // Value true when NOT INVERTED
     // PITFALL: occasionally (depending on the combination of bits) an inverted signal could be identified as direct signal
 
     unsigned int averagebitduration = 0;
@@ -728,7 +742,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
         return false;
     }
 
-    bool invertedprotocoldecoded = databitsstartinone ^ (RCSwitch::firstperiodlevel == 0);
+    bool invertedprotocoldecoded = !((!databitsstartinone) ^ (tmpfirstperiodlevel == 0));
 
     // get delay as average of the shorter level timings
     delay = (int)(0.5 + ((double)delay)/numberofdatabits);
@@ -746,7 +760,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     RCSwitch::nReceivedDelay = normalizedpulselength;
 
     RCSwitch::nReceivedInverted = invertedprotocoldecoded;
-    RCSwitch::nReceivedLevelInFirstTiming = RCSwitch::firstperiodlevel;
+    RCSwitch::nReceivedLevelInFirstTiming = tmpfirstperiodlevel;
 
 
     // for compatibility: check which protocol fits the data
@@ -768,7 +782,19 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
         if (invertedprotocoldecoded == pro.invertedSignal && // protocol inversion is correct AND
             diff(delay, pro.pulseLength) < delayTolerance && // pulse length is correct AND
             protocolratio == (int)(0.5 + (double)pro.one.high/(double)pro.one.low) && // long vs short ratio is correct AND
-            diff(RCSwitch::timings[0 + RCSwitch::firstperiodlevel], ((invertedprotocoldecoded)?(pro.syncFactor.high):(pro.syncFactor.low)) * delay) < ((invertedprotocoldecoded)?(pro.syncFactor.high):(pro.syncFactor.low)) * delayTolerance) { // the sync timing is correct
+            ( (databitsstartinone) ?
+            diff(RCSwitch::timings[0], pro.syncFactor.low * delay) < (pro.syncFactor.low * delayTolerance) // the sync timing is correct
+            :
+            diff(RCSwitch::timings[1], pro.syncFactor.low * delay) < (pro.syncFactor.low * delayTolerance) // the sync timing is correct
+            )  &&
+            ( (databitsstartinone) ?
+            diff(RCSwitch::timings[changeCount-1], pro.syncFactor.high * delay) < (pro.syncFactor.high * delayTolerance ) // the sync timing is correct
+            :
+            diff(RCSwitch::timings[0], pro.syncFactor.high * delay) < (pro.syncFactor.high * delayTolerance ) // the sync timing is correct
+            )
+            ) 
+            { // the sync timing is correct
+
                 finalp = i;
 		break;
 	}
@@ -825,14 +851,14 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
     }
     changeCount = 0;
     // store the opposite level, because the time recorded is the one of the previous level
-    RCSwitch::firstperiodlevel = ! digitalRead(RCSwitch::nStaticReceiverInterrupt);
+    RCSwitch::firstperiodlevel = ! digitalRead(RCSwitch::nStaticReceiverPin);
   }
  
   // detect overflow
   if (changeCount >= RCSWITCH_MAX_CHANGES) {
     changeCount = 0;
     // store the opposite level, because the time recorded is the one of the previous level
-    RCSwitch::firstperiodlevel = ! digitalRead(RCSwitch::nStaticReceiverInterrupt);
+    RCSwitch::firstperiodlevel = ! digitalRead(RCSwitch::nStaticReceiverPin);
     repeatCount = 0;
   }
 

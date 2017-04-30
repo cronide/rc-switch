@@ -133,7 +133,7 @@ class RCSwitch {
     static void handleInterrupt();
     static bool receiveProtocol(const int p, unsigned int changeCount);
     int nReceiverInterrupt;
-    static int nStaticReceiverInterrupt; // needed because nReceiverInterrupt (receiver pin) can not be read from handleInterrupt because it is static
+    static int nStaticReceiverPin; // needed because nReceiverInterrupt (receiver pin) can not be read from handleInterrupt because it is static
     #endif
     int nTransmitterPin;
     int nRepeatTransmit;
