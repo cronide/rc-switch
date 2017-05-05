@@ -87,10 +87,10 @@ enum {
 };
 
 #if not defined( RCSwitchDisableReceiving )
-unsigned long RCSwitch::nReceivedValue = 0;
-unsigned int RCSwitch::nReceivedBitlength = 0;
-unsigned int RCSwitch::nReceivedDelay = 0;
-unsigned int RCSwitch::nReceivedProtocol = 0;
+volatile unsigned long RCSwitch::nReceivedValue = 0;
+volatile unsigned int RCSwitch::nReceivedBitlength = 0;
+volatile unsigned int RCSwitch::nReceivedDelay = 0;
+volatile unsigned int RCSwitch::nReceivedProtocol = 0;
 bool RCSwitch::nReceivedInverted = false;
 unsigned int RCSwitch::nReceivedLevelInFirstTiming = 0;
 int RCSwitch::nReceiveTolerance = 60;
@@ -824,7 +824,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
 }
 
 void RECEIVE_ATTR RCSwitch::handleInterrupt() {
-	
+
   static unsigned int changeCount = 0;
   static unsigned long lastTime = 0;
   static unsigned int repeatCount = 0;
