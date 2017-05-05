@@ -174,6 +174,8 @@ class RCSwitch {
     volatile static unsigned int nReceivedBitlength;
     volatile static unsigned int nReceivedDelay;
     volatile static unsigned int nReceivedProtocol;
+    static bool nReceivedInverted;
+    static unsigned int nReceivedLevelInFirstTiming;
     const static unsigned int nSeparationLimit;
     /* 
      * timings[0] contains sync timing, followed by a number of bits
